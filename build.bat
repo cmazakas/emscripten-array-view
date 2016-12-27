@@ -1,0 +1,1 @@
+em++ --bind -O3 -std=c++11 -Wall -Wextra -o emu.js main.cpp
