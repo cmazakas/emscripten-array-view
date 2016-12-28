@@ -6,7 +6,6 @@
 #include <utility>
 #include <iterator>
 
-template <typename T>
 struct val_wrapper
 {
   emscripten::val& v_;
@@ -15,13 +14,13 @@ struct val_wrapper
   val_wrapper(void) = delete;
   val_wrapper(emscripten::val& v, size_t const pos) : v_{v}, pos_{pos} {};
 
-  auto operator=(T const& t) -> val_wrapper&
+  auto operator=(emscripten::val const& t) -> val_wrapper&
   {
     v_.set(pos_, t);
     return *this;
   }
 
-  auto operator=(T&& t) -> val_wrapper&
+  auto operator=(emscripten::val&& t) -> val_wrapper&
   {
     v_.set(pos_, std::move(t));
     return *this;
@@ -29,112 +28,88 @@ struct val_wrapper
 };
 
 template <typename T>
-struct helper
+struct array_view_iterator
 {
-  using value_type = T;
   using difference_type = ptrdiff_t;
-  using pointer = helper;
-  using reference = emscripten::val;
-  using iterator_category = std::random_access_iterator_tag;
+  using value_type = emscripten::val;
+  using pointer = value_type*;
+  using reference = value_type&;
+  using iterator_category = std::input_iterator_tag; 
 
-  emscripten::val& v_;
+  emscripten::val* v_;
   size_t pos_;
 
-  helper(void) = delete;
-  helper(emscripten::val& v, size_t const pos) : v_{v}, pos_{pos} {};
+  array_view_iterator(emscripten::val* v, size_t pos)
+    : v_{v}, pos_{pos}
+  {}
 
-  auto operator=(T v) -> void
+  array_view_iterator(array_view_iterator const& avi)
+    : v_{avi.v_}, pos_{avi.pos_}
+  {}
+
+  ~array_view_iterator(void) = default;
+
+  auto operator=(array_view_iterator const& av_i) -> array_view_iterator&
   {
-    v_.set(pos_, v);
+    v_ = av_i.v_;
+    pos_ = av_i.pos_;
+    return *this;
   }
 
-  auto operator<(helper<T> const& other) -> bool
+  auto operator*(void) -> val_wrapper
   {
-    return (v_[pos_].template as<T>() < other.v_[other.pos_].template as<T>());
+    return {*v_, pos_};
   }
 
-  auto operator>(helper const& other) -> bool
+  auto operator++(void) -> array_view_iterator&
   {
-    return false;
+    ++pos_;
+    return *this;
   }
 
-  auto operator==(helper const& other) -> bool
+  auto operator==(array_view_iterator const& av_iter) -> bool
   {
-    return (v_ == other.v_ && pos_ == other.pos_);
+    return v_ == av_iter.v_ && pos_ == av_iter.pos_;
   }
 
-  auto operator!=(helper const& other) -> bool
+  auto operator!=(array_view_iterator const& av_iter) -> bool
   {
-    return !(*this == other);
-  }
-
-  auto operator*(void) -> val_wrapper<T>
-  {
-    return val_wrapper<T>{v_, pos_};
-  }
-
-  auto operator+(size_t const pos) -> helper
-  {
-    return {v_, pos_ + pos};
-  }
+    return v_ != av_iter.v_ || pos_ != av_iter.pos_;
+  }  
 };
 
-template <typename T>
-struct array_view
+
+auto av_iterator_tests(emscripten::val& v) -> emscripten::val&
 {
-public:
-  using value_type = T;
-  using reference = value_type&;
-  using pointer = value_type*;
+  using it_traits = std::iterator_traits<array_view_iterator<int>>;
+  using difference_type = typename it_traits::difference_type;
+  using value_type = typename it_traits::value_type;
+  using pointer = typename it_traits::pointer;
+  using reference = typename it_traits::reference;
+  using iterator_category = typename it_traits::iterator_category;
 
-private:
-  emscripten::val& v_;
-  size_t size_;
+  array_view_iterator<int> av_iterator{&v, 0};
+  array_view_iterator<int> other{&v, 13};
 
-public:
-  array_view(void) = delete;
-  array_view(emscripten::val& v) : v_{v}, size_{0} {}
+  std::swap(av_iterator, other);
+  assert((std::distance(other, av_iterator) == 13));
 
-  auto operator[](size_t const pos) -> helper<T>
-  {
-    return helper<T>{v_, pos};
-  }
+  std::swap(av_iterator, other);
+  assert((std::distance(av_iterator, other) == 13));
 
-  auto begin(void) -> helper<T>
-  {
-    return helper<T>{v_, 0};
-  }
-
-  auto end(void) -> helper<T>
-  {
-    return helper<T>{v_, size_ - 1};
-  }
-};
-
-float lerp(float a, float b, float t) 
-{
-  return (1 - t) * a + t * b;
-}
-
-auto sort_array(emscripten::val v) -> emscripten::val
-{
-  array_view<int> av{v};
-
-  av[0] = 1337;
-  av[1] = 1338;
-
-  assert((av[0] < av[1]));
-
-  auto begin = av.begin();
-  *begin = 7331;
-
-  //std::sort(av.begin(), av.end());
+  *av_iterator = value_type{1337};
+  *other = value_type{7331};
 
   return v;
 }
 
-EMSCRIPTEN_BINDINGS(my_module) 
+auto sort_array(emscripten::val v) -> emscripten::val
 {
-  emscripten::function("lerp", &lerp);
+  av_iterator_tests(v);
+  return v;
+}
+
+EMSCRIPTEN_BINDINGS(emu) 
+{
   emscripten::function("sort_array", &sort_array);
 }
